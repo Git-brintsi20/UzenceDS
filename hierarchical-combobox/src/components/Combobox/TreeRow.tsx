@@ -10,6 +10,10 @@ interface TreeRowProps {
   offsetTop: number;
   /** Row height in pixels — must match the virtualizer's itemHeight */
   rowHeight: number;
+  /** Whether this row is the keyboard-highlighted (active descendant) row */
+  isHighlighted: boolean;
+  /** Unique DOM id for this option — used by aria-activedescendant */
+  optionId: string;
   onToggleExpand: (nodeId: string) => void;
   onToggleSelect: (nodeId: string) => void;
 }
@@ -27,21 +31,47 @@ interface TreeRowProps {
  *   When a node's children are being fetched (isLoading = true),
  *   the expand icon is replaced with a pulsing bar. This gives
  *   the user immediate feedback that something is happening.
+ *
+ * ARIA:
+ *   Each row carries role="option" and aria-selected reflecting the
+ *   checkbox selection state. Branch nodes also carry aria-expanded.
+ *   The row's DOM id is used by the trigger's aria-activedescendant
+ *   to communicate the current keyboard-highlighted item to assistive
+ *   technology.
  */
 export function TreeRow({
   flatNode,
   offsetTop,
   rowHeight,
+  isHighlighted,
+  optionId,
   onToggleExpand,
   onToggleSelect,
 }: TreeRowProps): React.JSX.Element {
   const { node, depth } = flatNode;
 
-  const handleExpandClick = useCallback((): void => {
-    onToggleExpand(node.id);
-  }, [node.id, onToggleExpand]);
+  const handleExpandClick = useCallback(
+    (event: React.MouseEvent): void => {
+      // Prevent the click from also toggling selection
+      event.stopPropagation();
+      onToggleExpand(node.id);
+    },
+    [node.id, onToggleExpand],
+  );
 
-  const handleCheckboxClick = useCallback((): void => {
+  const handleCheckboxClick = useCallback(
+    (event: React.MouseEvent): void => {
+      event.stopPropagation();
+    },
+    [],
+  );
+
+  const handleCheckboxChange = useCallback((): void => {
+    onToggleSelect(node.id);
+  }, [node.id, onToggleSelect]);
+
+  /** Clicking anywhere on the row (outside expand/checkbox) toggles selection */
+  const handleRowClick = useCallback((): void => {
     onToggleSelect(node.id);
   }, [node.id, onToggleSelect]);
 
@@ -55,7 +85,16 @@ export function TreeRow({
 
   return (
     <div
-      className="absolute left-0 right-0 flex items-center text-sm"
+      id={optionId}
+      role="option"
+      aria-selected={node.isSelected}
+      aria-expanded={node.hasChildren ? node.isOpen : undefined}
+      onClick={handleRowClick}
+      className={[
+        'absolute left-0 right-0 flex cursor-pointer items-center text-sm',
+        'transition-colors duration-75',
+        isHighlighted ? 'bg-primary-50' : 'hover:bg-neutral-50',
+      ].join(' ')}
       style={{
         height: `${rowHeight}px`,
         top: `${offsetTop}px`,
@@ -66,6 +105,7 @@ export function TreeRow({
       {node.hasChildren ? (
         <button
           type="button"
+          tabIndex={-1}
           onClick={handleExpandClick}
           className={[
             'mr-xs flex h-5 w-5 flex-shrink-0 items-center justify-center',
@@ -73,6 +113,7 @@ export function TreeRow({
             'transition-colors duration-100',
           ].join(' ')}
           aria-label={node.isOpen ? `Collapse ${node.label}` : `Expand ${node.label}`}
+          aria-hidden="true"
         >
           {node.isLoading ? (
             /* Loading skeleton — pulsing bar replaces the chevron */
@@ -88,6 +129,7 @@ export function TreeRow({
               viewBox="0 0 24 24"
               stroke="currentColor"
               strokeWidth={2.5}
+              aria-hidden="true"
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
@@ -95,19 +137,21 @@ export function TreeRow({
         </button>
       ) : (
         /* Leaf node spacer — keeps labels aligned with branch nodes */
-        <span className="mr-xs inline-block h-5 w-5 flex-shrink-0" />
+        <span className="mr-xs inline-block h-5 w-5 flex-shrink-0" aria-hidden="true" />
       )}
 
       {/* ── Checkbox ── */}
       <input
         type="checkbox"
+        tabIndex={-1}
         checked={node.isSelected}
         ref={(inputElement) => {
           if (inputElement) {
             inputElement.indeterminate = node.isIndeterminate;
           }
         }}
-        onChange={handleCheckboxClick}
+        onClick={handleCheckboxClick}
+        onChange={handleCheckboxChange}
         className={[
           'mr-sm h-4 w-4 flex-shrink-0 cursor-pointer rounded-sm',
           'border-neutral-300 text-primary-600',
