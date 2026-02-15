@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTreeData } from '../../hooks/useTreeData';
 import { useVirtualizer } from '../../hooks/useVirtualizer';
 import { TreeRow } from './TreeRow';
+import { SelectedTags } from './SelectedTags';
 
 /** Fixed row height in pixels — must match the design token --combobox-row-height (2rem = 32px) */
 const ROW_HEIGHT_PX = 32;
@@ -28,7 +29,7 @@ const ROW_HEIGHT_PX = 32;
  */
 export function Combobox(): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
-  const { flatNodes, toggleExpand, toggleSelect } = useTreeData();
+  const { flatNodes, selectedNodes, toggleExpand, toggleSelect, deselectNode } = useTreeData();
 
   /** Ref for the scrollable dropdown container — fed to the virtualizer */
   const dropdownScrollRef = useRef<HTMLDivElement>(null);
@@ -69,22 +70,14 @@ export function Combobox(): React.JSX.Element {
     setIsOpen((previous) => !previous);
   }, []);
 
-  /**
-   * Count how many nodes are currently selected — shown as a badge
-   * on the input so the user knows their selection count at a glance.
-   */
-  const selectedNodeCount = flatNodes.filter(
-    (flatNode) => flatNode.node.isSelected,
-  ).length;
-
   return (
     <div ref={comboboxWrapperRef} className="relative w-full max-w-md">
-      {/* ── Input trigger ── */}
+      {/* ── Input trigger with tags ── */}
       <button
         type="button"
         onClick={handleInputClick}
         className={[
-          'flex w-full items-center justify-between',
+          'flex w-full min-h-10 items-center gap-sm',
           'rounded-md border bg-white px-md py-sm text-sm',
           'transition-colors duration-150',
           'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1',
@@ -93,16 +86,22 @@ export function Combobox(): React.JSX.Element {
             : 'border-neutral-300 hover:border-neutral-400',
         ].join(' ')}
       >
-        <span className="truncate text-neutral-700">
-          {selectedNodeCount > 0
-            ? `${selectedNodeCount} item${selectedNodeCount > 1 ? 's' : ''} selected`
-            : 'Select items…'}
-        </span>
+        {/* Tags or placeholder text */}
+        <div className="flex flex-1 flex-wrap items-center gap-xs overflow-hidden">
+          {selectedNodes.length > 0 ? (
+            <SelectedTags
+              selectedNodes={selectedNodes}
+              onRemove={deselectNode}
+            />
+          ) : (
+            <span className="truncate text-neutral-400">Select items…</span>
+          )}
+        </div>
 
         {/* Chevron icon — rotates when open */}
         <svg
           className={[
-            'ml-sm h-4 w-4 text-neutral-400 transition-transform duration-200',
+            'ml-sm h-4 w-4 flex-shrink-0 text-neutral-400 transition-transform duration-200',
             isOpen ? 'rotate-180' : '',
           ].join(' ')}
           fill="none"

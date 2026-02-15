@@ -20,11 +20,23 @@ import { fetchChildren, generateRootNodes } from '../data/mock-loader';
  * Splitting this across multiple hooks would force us to synchronize
  * shared state via Context — which the constraints forbid.
  */
+/**
+ * A selected node reference for tag rendering.
+ * Only leaf-level or explicitly-checked nodes appear as tags —
+ * we don't show a parent tag if it's only indeterminate.
+ */
+export interface SelectedNode {
+  id: string;
+  label: string;
+}
+
 export function useTreeData(): {
   flatNodes: FlatNode[];
   rootNodes: TreeNode[];
+  selectedNodes: SelectedNode[];
   toggleExpand: (nodeId: string) => void;
   toggleSelect: (nodeId: string) => void;
+  deselectNode: (nodeId: string) => void;
 } {
   const [rootNodes, setRootNodes] = useState<TreeNode[]>(() =>
     generateRootNodes(),
@@ -158,7 +170,51 @@ export function useTreeData(): {
     [],
   );
 
-  return { flatNodes, rootNodes, toggleExpand, toggleSelect };
+  /**
+   * Collects every node in the tree that has isSelected = true.
+   *
+   * We walk the entire tree (not just the flat list) because collapsed
+   * branches might contain selected nodes that aren't in the visible
+   * flat list. This ensures tags persist even when their branch is
+   * collapsed — selection state is never lost.
+   */
+  const selectedNodes = useMemo<SelectedNode[]>(() => {
+    const result: SelectedNode[] = [];
+
+    function collectSelected(nodes: TreeNode[]): void {
+      for (const node of nodes) {
+        if (node.isSelected) {
+          result.push({ id: node.id, label: node.label });
+        }
+        // Don't recurse into selected parents' children — the parent
+        // tag already represents the whole subtree. Only collect children
+        // if the parent is NOT fully selected (i.e. indeterminate or unchecked).
+        if (!node.isSelected && node.children.length > 0) {
+          collectSelected(node.children);
+        }
+      }
+    }
+
+    collectSelected(rootNodes);
+    return result;
+  }, [rootNodes]);
+
+  /**
+   * Deselects a single node — used when the user clicks the × on a tag.
+   * Internally it's the same as toggleSelect (which flips to unchecked
+   * and propagates), but semantically clearer in the tag context.
+   */
+  const deselectNode = useCallback(
+    (nodeId: string): void => {
+      // toggleSelect already handles downward + upward propagation.
+      // If the node is currently selected, toggling it will deselect
+      // it and all its descendants, then recalculate parents.
+      toggleSelect(nodeId);
+    },
+    [toggleSelect],
+  );
+
+  return { flatNodes, rootNodes, selectedNodes, toggleExpand, toggleSelect, deselectNode };
 }
 
 // ──────────────────────────────────────────────────────────
