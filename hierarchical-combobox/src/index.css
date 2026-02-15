@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+/*
+ * Design Tokens — CSS Variables
+ * Per assignment: "CSS variables where applicable, design-token–style abstractions"
+ * These tokens define the combobox visual language and are consumed
+ * by Tailwind utilities via the theme configuration below.
+ */
+@theme {
+  /* ---------- Color Palette ---------- */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+
+  --color-success-500: #22c55e;
+  --color-success-600: #16a34a;
+
+  /* ---------- Spacing Scale ---------- */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 0.75rem;
+  --spacing-lg: 1rem;
+  --spacing-xl: 1.5rem;
+
+  /* ---------- Radii ---------- */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+
+  /* ---------- Combobox-specific ---------- */
+  --combobox-row-height: 2rem;
+  --combobox-indent-width: 1.25rem;
+  --combobox-max-height: 20rem;
+}
+
+/* Base reset */
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
