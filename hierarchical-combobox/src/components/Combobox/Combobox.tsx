@@ -1,14 +1,33 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTreeData } from '../../hooks/useTreeData';
+import type { UseTreeDataConfig } from '../../hooks/useTreeData';
 import { useVirtualizer } from '../../hooks/useVirtualizer';
 import { TreeRow } from './TreeRow';
 import { SelectedTags } from './SelectedTags';
+import type { TreeNode } from '../../types/tree';
 
 /** Fixed row height in pixels — must match the design token --combobox-row-height (2rem = 32px) */
 const ROW_HEIGHT_PX = 32;
 
 /** Unique prefix for generating DOM ids on each tree option row */
 const OPTION_ID_PREFIX = 'hcb-option-';
+
+/**
+ * Props for the Combobox component.
+ *
+ * Both fields are optional — the component works out of the box with
+ * the default mock loader and 8-department root set. Stories and tests
+ * use these props to inject large datasets, slow APIs, or failing fetchers.
+ */
+export interface ComboboxProps {
+  /** Override the initial root nodes (defaults to 8 departments) */
+  initialRootNodes?: TreeNode[];
+  /** Override the child-fetch function (defaults to mock loader with 500ms delay) */
+  fetchChildrenFn?: (
+    parentId: string,
+    parentLabel: string,
+  ) => Promise<TreeNode[]>;
+}
 
 /**
  * HierarchicalCombobox — the root component.
@@ -51,11 +70,16 @@ const OPTION_ID_PREFIX = 'hcb-option-';
  *   If targetScrollTop + ROW_HEIGHT > container.scrollTop + containerHeight
  *     → scroll down so the row's bottom edge is visible.
  */
-export function Combobox(): React.JSX.Element {
+export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
 
-  const { flatNodes, selectedNodes, toggleExpand, toggleSelect, deselectNode } = useTreeData();
+  const treeConfig: UseTreeDataConfig = {};
+  if (props.initialRootNodes) treeConfig.initialRootNodes = props.initialRootNodes;
+  if (props.fetchChildrenFn) treeConfig.fetchChildrenFn = props.fetchChildrenFn;
+
+  const { flatNodes, selectedNodes, error, toggleExpand, toggleSelect, deselectNode, clearError } =
+    useTreeData(treeConfig);
 
   /** Ref for the scrollable dropdown container — fed to the virtualizer */
   const dropdownScrollRef = useRef<HTMLDivElement>(null);
@@ -331,9 +355,28 @@ export function Combobox(): React.JSX.Element {
           </div>
 
           {/* Empty state */}
-          {flatNodes.length === 0 && (
+          {flatNodes.length === 0 && !error && (
             <div className="px-md py-lg text-center text-sm text-neutral-400" role="status">
               No items available
+            </div>
+          )}
+
+          {/* Error banner — shown when an async fetch fails */}
+          {error && (
+            <div
+              role="alert"
+              className="flex items-center justify-between border-t border-danger-500/20 bg-danger-500/10 px-md py-sm text-sm text-danger-600"
+            >
+              <span>{error}</span>
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={clearError}
+                className="ml-sm text-xs font-medium underline hover:text-danger-500"
+                aria-label="Dismiss error"
+              >
+                Dismiss
+              </button>
             </div>
           )}
         </div>

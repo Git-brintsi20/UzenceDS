@@ -30,17 +30,44 @@ export interface SelectedNode {
   label: string;
 }
 
-export function useTreeData(): {
+/**
+ * Configuration object for useTreeData.
+ *
+ * Both fields are optional — when omitted, defaults kick in:
+ *   - initialRootNodes → generateRootNodes() (8 departments)
+ *   - fetchChildrenFn  → fetchChildren from mock-loader (500ms delay)
+ *
+ * This lets Storybook stories and tests inject different data shapes
+ * (large datasets, failing APIs) without touching the hook internals.
+ */
+export interface UseTreeDataConfig {
+  /** Override the initial tree. Defaults to 8 department root nodes. */
+  initialRootNodes?: TreeNode[];
+  /** Override the child-fetch function. Defaults to the mock loader. */
+  fetchChildrenFn?: (
+    parentId: string,
+    parentLabel: string,
+  ) => Promise<TreeNode[]>;
+}
+
+export function useTreeData(config?: UseTreeDataConfig): {
   flatNodes: FlatNode[];
   rootNodes: TreeNode[];
   selectedNodes: SelectedNode[];
+  error: string | null;
   toggleExpand: (nodeId: string) => void;
   toggleSelect: (nodeId: string) => void;
   deselectNode: (nodeId: string) => void;
+  clearError: () => void;
 } {
+  const resolvedFetchChildren = config?.fetchChildrenFn ?? fetchChildren;
+
   const [rootNodes, setRootNodes] = useState<TreeNode[]>(() =>
-    generateRootNodes(),
+    config?.initialRootNodes ?? generateRootNodes(),
   );
+
+  /** Holds the latest async fetch error message, if any */
+  const [error, setError] = useState<string | null>(null);
 
   /**
    * Memoized flat list — only recomputed when the tree structure changes.
@@ -114,12 +141,15 @@ export function useTreeData(): {
 
       // Needs async loading — mark as loading, then fetch.
       if (targetNode.hasChildren && !targetNode.isLoading) {
+        // Clear any previous error before a new attempt
+        setError(null);
+
         updateNode(nodeId, (node) => ({
           ...node,
           isLoading: true,
         }));
 
-        void fetchChildren(nodeId, targetNode.label).then(
+        void resolvedFetchChildren(nodeId, targetNode.label).then(
           (loadedChildren) => {
             updateNode(nodeId, (node) => ({
               ...node,
@@ -128,10 +158,23 @@ export function useTreeData(): {
               isOpen: true,
             }));
           },
+          (fetchError: unknown) => {
+            // Revert loading state and surface the error
+            updateNode(nodeId, (node) => ({
+              ...node,
+              isLoading: false,
+            }));
+
+            const message =
+              fetchError instanceof Error
+                ? fetchError.message
+                : 'Failed to load children';
+            setError(message);
+          },
         );
       }
     },
-    [rootNodes, updateNode],
+    [rootNodes, updateNode, resolvedFetchChildren],
   );
 
   /**
@@ -214,7 +257,12 @@ export function useTreeData(): {
     [toggleSelect],
   );
 
-  return { flatNodes, rootNodes, selectedNodes, toggleExpand, toggleSelect, deselectNode };
+  /** Clears the current error — useful after the user acknowledges it */
+  const clearError = useCallback((): void => {
+    setError(null);
+  }, []);
+
+  return { flatNodes, rootNodes, selectedNodes, error, toggleExpand, toggleSelect, deselectNode, clearError };
 }
 
 // ──────────────────────────────────────────────────────────
