@@ -106,6 +106,8 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
     overscan: 5,
   });
 
+
+
   const listboxId = 'hcb-listbox';
 
   /**
@@ -138,23 +140,39 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
     };
   }, []);
 
+  // ── Reset scroll position when dropdown opens ──
+
+  useEffect(() => {
+    if (isOpen && dropdownScrollRef.current) {
+      dropdownScrollRef.current.scrollTop = 0;
+    }
+  }, [isOpen]);
+
   // ── Scroll the highlighted row into view ──
 
   useEffect(() => {
-    if (highlightedIndex < 0 || !dropdownScrollRef.current) return;
+    if (highlightedIndex < 0 || !dropdownScrollRef.current || displayNodes.length === 0) return;
 
     const container = dropdownScrollRef.current;
+    // Calculate row position based on its actual index in the full list
     const rowTop = highlightedIndex * currentRowHeight;
     const rowBottom = rowTop + currentRowHeight;
     const visibleTop = container.scrollTop;
     const visibleBottom = visibleTop + container.clientHeight;
 
+    // Scroll only if the row is outside the visible area
     if (rowTop < visibleTop) {
-      container.scrollTop = rowTop;
+      // Row is above viewport - scroll up to show it at the top
+      requestAnimationFrame(() => {
+        container.scrollTop = rowTop;
+      });
     } else if (rowBottom > visibleBottom) {
-      container.scrollTop = rowBottom - container.clientHeight;
+      // Row is below viewport - scroll down to show it at the bottom
+      requestAnimationFrame(() => {
+        container.scrollTop = rowBottom - container.clientHeight;
+      });
     }
-  }, [highlightedIndex, currentRowHeight]);
+  }, [highlightedIndex, currentRowHeight, displayNodes.length]);
 
   // ── Reset scroll position when switching between tree/search modes ──
 
@@ -388,7 +406,7 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
       {/* ── Dropdown panel ── */}
       {isOpen && (
         <div
-          className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
+          className="absolute left-0 top-full z-50 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg"
         >
           {/* Search-mode "no results" message */}
           {isSearchMode && displayNodes.length === 0 && (
@@ -405,7 +423,7 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
             aria-label="Hierarchical options"
             aria-multiselectable="true"
             className="relative overflow-y-auto"
-            style={{ maxHeight: '320px' }}
+            style={{ maxHeight: '320px', minHeight: '100px' }}
           >
             {displayNodes.length > 0 && (
               <div className="relative w-full" style={{ height: `${totalHeight}px` }}>

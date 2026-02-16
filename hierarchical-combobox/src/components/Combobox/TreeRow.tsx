@@ -59,6 +59,7 @@ export function TreeRow({
   const handleExpandClick = useCallback(
     (event: React.MouseEvent): void => {
       event.stopPropagation();
+      event.preventDefault(); // Prevent focus
       onToggleExpand(node.id);
     },
     [node.id, onToggleExpand],
@@ -114,6 +115,7 @@ export function TreeRow({
             type="button"
             tabIndex={-1}
             onClick={handleExpandClick}
+            onMouseDown={(e): void => e.preventDefault()}
             className={[
               'mr-1 flex h-5 w-5 flex-shrink-0 items-center justify-center',
               'rounded text-gray-500 hover:bg-gray-100 hover:text-gray-700',

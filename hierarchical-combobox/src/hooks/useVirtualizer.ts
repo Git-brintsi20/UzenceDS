@@ -86,7 +86,8 @@ export function useVirtualizer({
   totalHeight: number;
 } {
   const [scrollTop, setScrollTop] = useState(0);
-  const [containerHeight, setContainerHeight] = useState(0);
+  // Initialize with reasonable default to avoid 0-height calculation on first render
+  const [containerHeight, setContainerHeight] = useState(320);
 
   // Keep a ref to the latest scroll position so the resize observer
   // callback doesn't need scrollTop in its dependency array.
@@ -97,6 +98,8 @@ export function useVirtualizer({
    * Uses requestAnimationFrame to batch updates with the browser's
    * paint cycle, preventing layout thrashing on fast scrolls.
    */
+  const rafIdRef = useRef<number | null>(null);
+  
   const handleScroll = useCallback((): void => {
     const container = containerRef.current;
     if (!container) return;
@@ -104,10 +107,16 @@ export function useVirtualizer({
     const latestScrollTop = container.scrollTop;
     scrollTopRef.current = latestScrollTop;
 
+    // Cancel any pending rAF to avoid queuing multiple updates
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+    }
+
     // rAF ensures we only update state once per frame even if the
     // browser fires multiple scroll events between paints.
-    requestAnimationFrame(() => {
+    rafIdRef.current = requestAnimationFrame(() => {
       setScrollTop(latestScrollTop);
+      rafIdRef.current = null;
     });
   }, [containerRef]);
 
@@ -128,10 +137,16 @@ export function useVirtualizer({
     // Listen for scroll
     container.addEventListener('scroll', handleScroll, { passive: true });
 
-    // Track container resize
+    // Track container resize - only update if height actually changed
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setContainerHeight(entry.contentRect.height);
+        const newHeight = entry.contentRect.height;
+        setContainerHeight((prevHeight) => {
+          if (Math.abs(newHeight - prevHeight) > 1) {
+            return newHeight;
+          }
+          return prevHeight;
+        });
       }
     });
     resizeObserver.observe(container);
@@ -139,6 +154,9 @@ export function useVirtualizer({
     return (): void => {
       container.removeEventListener('scroll', handleScroll);
       resizeObserver.disconnect();
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
     };
   }, [containerRef, handleScroll]);
 
@@ -160,6 +178,8 @@ export function useVirtualizer({
    * are 32px, we need ceil(100/32) = 4 rows, not floor = 3.
    */
   const visibleNodeCount = Math.ceil(containerHeight / itemHeight);
+
+
 
   /**
    * Clamp start/end with overscan buffer.

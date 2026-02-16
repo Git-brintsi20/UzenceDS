@@ -75,10 +75,9 @@ export function useTreeData(config?: UseTreeDataConfig): {
    * flattenTree is a pure function, so useMemo guarantees we don't
    * re-flatten on unrelated re-renders (e.g. a parent component's state).
    */
-  const flatNodes = useMemo<FlatNode[]>(
-    () => flattenTree(rootNodes),
-    [rootNodes],
-  );
+  const flatNodes = useMemo<FlatNode[]>(() => {
+    return flattenTree(rootNodes);
+  }, [rootNodes]);
 
   /**
    * Deep-clones the root tree and applies a mutation to a specific node.
@@ -141,6 +140,7 @@ export function useTreeData(config?: UseTreeDataConfig): {
 
       // Needs async loading — mark as loading, then fetch.
       if (targetNode.hasChildren && !targetNode.isLoading) {
+
         // Clear any previous error before a new attempt
         setError(null);
 
