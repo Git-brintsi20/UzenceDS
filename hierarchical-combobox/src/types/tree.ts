@@ -43,4 +43,10 @@ export interface FlatNode {
   node: TreeNode;
   /** How many levels deep this node sits (root = 0) */
   depth: number;
+  /**
+   * Ancestry breadcrumb for search results (e.g. "Engineering › Backend").
+   * Only present when this FlatNode was produced by searchTree, and only
+   * when the matched node has at least one ancestor.
+   */
+  breadcrumb?: string;
 }

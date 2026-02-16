@@ -132,3 +132,54 @@ export function createTreeNode(
     hasChildren,
   };
 }
+
+/**
+ * Searches the loaded tree for nodes whose label contains the query string.
+ *
+ * Returns a flat list of FlatNode objects (all at depth 0) suitable for
+ * the virtualizer. Each result carries an optional `breadcrumb` string
+ * showing the path from root → parent so the user can see WHERE in the
+ * hierarchy the match lives — this is the "ancestry context" the
+ * assignment requires.
+ *
+ * The search is case-insensitive and only covers already-loaded nodes.
+ * Collapsed branches ARE traversed (so search can find items the user
+ * hasn't expanded yet), but children that haven't been fetched from the
+ * API are not reachable.
+ *
+ * @param rootNodes The full tree (same reference as useTreeData's state).
+ * @param query     The raw user input from the search field.
+ * @returns         A flat array of matching FlatNodes with ancestry context.
+ */
+export function searchTree(
+  rootNodes: TreeNode[],
+  query: string,
+): FlatNode[] {
+  const results: FlatNode[] = [];
+  const normalizedQuery = query.toLowerCase().trim();
+
+  if (normalizedQuery === '') return results;
+
+  function dfs(nodes: TreeNode[], ancestorLabels: string[]): void {
+    for (const node of nodes) {
+      if (node.label.toLowerCase().includes(normalizedQuery)) {
+        results.push({
+          node,
+          depth: 0,
+          breadcrumb:
+            ancestorLabels.length > 0
+              ? ancestorLabels.join(' › ')
+              : undefined,
+        });
+      }
+
+      // Always recurse into loaded children — search sees through collapsed branches
+      if (node.children.length > 0) {
+        dfs(node.children, [...ancestorLabels, node.label]);
+      }
+    }
+  }
+
+  dfs(rootNodes, []);
+  return results;
+}

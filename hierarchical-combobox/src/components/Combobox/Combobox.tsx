@@ -1,13 +1,17 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useTreeData } from '../../hooks/useTreeData';
 import type { UseTreeDataConfig } from '../../hooks/useTreeData';
 import { useVirtualizer } from '../../hooks/useVirtualizer';
+import { searchTree } from '../../logic/tree-utils';
 import { TreeRow } from './TreeRow';
 import { SelectedTags } from './SelectedTags';
 import type { TreeNode } from '../../types/tree';
 
-/** Fixed row height in pixels — must match the design token --combobox-row-height (2rem = 32px) */
+/** Fixed row height in pixels for the normal tree view */
 const ROW_HEIGHT_PX = 32;
+
+/** Taller row height (px) for search results that include ancestry breadcrumbs */
+const SEARCH_ROW_HEIGHT_PX = 44;
 
 /** Unique prefix for generating DOM ids on each tree option row */
 const OPTION_ID_PREFIX = 'hcb-option-';
@@ -32,54 +36,59 @@ export interface ComboboxProps {
 /**
  * HierarchicalCombobox — the root component.
  *
+ * Two rendering modes
+ * ───────────────────
+ * **Tree mode** (default): A hierarchical tree view with expand/collapse,
+ * indentation, and async lazy-loading of children.
+ *
+ * **Search mode** (activated when the user types in the input): A flat
+ * filtered list with matching text highlighted and ancestry breadcrumbs
+ * showing where each result lives in the hierarchy. This is the
+ * "search with context preservation" feature.
+ *
  * ARIA 1.2 Combobox Pattern
  * ─────────────────────────
- * The input has role="combobox" with:
+ * The text input has role="combobox" with:
  *   - aria-expanded:         true when dropdown is open
  *   - aria-controls:         points to the listbox id
- *   - aria-activedescendant: points to the currently highlighted option's DOM id
- *
- * The listbox has role="listbox" with:
- *   - Each visible row has role="option"
- *   - aria-selected reflects the checkbox selection state
+ *   - aria-activedescendant: points to the currently highlighted option
  *
  * Keyboard Navigation
  * ───────────────────
- * Focus stays on the input at all times. We track a "highlighted index"
- * into the flatNodes array and use aria-activedescendant to communicate
- * the active row to screen readers. This avoids the complexity of
- * physically moving focus into virtualized rows that may not be in the DOM.
- *
- *   ArrowDown  → move highlight to next row
+ *   ArrowDown  → move highlight to next row (opens dropdown if closed)
  *   ArrowUp    → move highlight to previous row
- *   ArrowRight → expand the highlighted node (if collapsed & has children)
- *   ArrowLeft  → collapse the highlighted node (if expanded)
- *   Enter      → toggle selection on the highlighted node
+ *   ArrowRight → expand highlighted node (tree mode only)
+ *   ArrowLeft  → collapse highlighted node (tree mode only)
+ *   Enter      → toggle selection on highlighted node
  *   Home       → jump to first row
  *   End        → jump to last row
- *   Escape     → close dropdown
- *
- * Scroll-into-view
- * ────────────────
- * When the highlighted index changes via keyboard, we scroll the container
- * so the highlighted row is visible. The math:
- *
- *   targetScrollTop = highlightedIndex × ROW_HEIGHT_PX
- *
- *   If targetScrollTop < container.scrollTop → scroll up to show the row.
- *   If targetScrollTop + ROW_HEIGHT > container.scrollTop + containerHeight
- *     → scroll down so the row's bottom edge is visible.
+ *   Escape     → clears search query, then closes dropdown
  */
 export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const treeConfig: UseTreeDataConfig = {};
   if (props.initialRootNodes) treeConfig.initialRootNodes = props.initialRootNodes;
   if (props.fetchChildrenFn) treeConfig.fetchChildrenFn = props.fetchChildrenFn;
 
-  const { flatNodes, selectedNodes, error, toggleExpand, toggleSelect, deselectNode, clearError } =
+  const { flatNodes, rootNodes, selectedNodes, error, toggleExpand, toggleSelect, deselectNode, clearError } =
     useTreeData(treeConfig);
+
+  /** Search results — computed from the full tree whenever the query changes */
+  const searchResults = useMemo(
+    () => (searchQuery.trim().length > 0 ? searchTree(rootNodes, searchQuery) : []),
+    [rootNodes, searchQuery],
+  );
+
+  const isSearchMode = searchQuery.trim().length > 0;
+  const displayNodes = useMemo(() => {
+    const nodes = isSearchMode ? searchResults : flatNodes;
+    // Filter out any null/undefined entries to prevent rendering issues
+    return nodes.filter((node) => node && node.node && node.node.id);
+  }, [isSearchMode, searchResults, flatNodes]);
+  const currentRowHeight = isSearchMode ? SEARCH_ROW_HEIGHT_PX : ROW_HEIGHT_PX;
 
   /** Ref for the scrollable dropdown container — fed to the virtualizer */
   const dropdownScrollRef = useRef<HTMLDivElement>(null);
@@ -87,13 +96,13 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
   /** Ref for the entire combobox wrapper — used for outside-click detection */
   const comboboxWrapperRef = useRef<HTMLDivElement>(null);
 
-  /** Ref for the trigger — we re-focus it after keyboard actions */
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  /** Ref for the text input (role=combobox) */
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const { virtualItems, totalHeight } = useVirtualizer({
     containerRef: dropdownScrollRef,
-    itemCount: flatNodes.length,
-    itemHeight: ROW_HEIGHT_PX,
+    itemCount: displayNodes.length,
+    itemHeight: currentRowHeight,
     overscan: 5,
   });
 
@@ -102,12 +111,11 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
   /**
    * Derive the DOM id of the currently highlighted option.
    * Returns undefined when nothing is highlighted (-1) so
-   * aria-activedescendant is omitted entirely — which is the
-   * correct behavior per ARIA spec when no option is active.
+   * aria-activedescendant is omitted entirely.
    */
   const activeDescendantId =
-    highlightedIndex >= 0 && highlightedIndex < flatNodes.length
-      ? `${OPTION_ID_PREFIX}${flatNodes[highlightedIndex]?.node.id ?? ''}`
+    highlightedIndex >= 0 && highlightedIndex < displayNodes.length
+      ? `${OPTION_ID_PREFIX}${displayNodes[highlightedIndex]?.node.id ?? ''}`
       : undefined;
 
   // ── Close on outside click ──
@@ -119,6 +127,7 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
 
       if (!wrapper.contains(event.target as Node)) {
         setIsOpen(false);
+        setSearchQuery('');
         setHighlightedIndex(-1);
       }
     }
@@ -135,48 +144,92 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
     if (highlightedIndex < 0 || !dropdownScrollRef.current) return;
 
     const container = dropdownScrollRef.current;
-    const rowTop = highlightedIndex * ROW_HEIGHT_PX;
-    const rowBottom = rowTop + ROW_HEIGHT_PX;
+    const rowTop = highlightedIndex * currentRowHeight;
+    const rowBottom = rowTop + currentRowHeight;
     const visibleTop = container.scrollTop;
     const visibleBottom = visibleTop + container.clientHeight;
 
-    // Row is above the visible area — scroll up
     if (rowTop < visibleTop) {
       container.scrollTop = rowTop;
-    }
-    // Row is below the visible area — scroll down just enough
-    else if (rowBottom > visibleBottom) {
+    } else if (rowBottom > visibleBottom) {
       container.scrollTop = rowBottom - container.clientHeight;
     }
-  }, [highlightedIndex]);
+  }, [highlightedIndex, currentRowHeight]);
 
-  // ── Click handler ──
+  // ── Reset scroll position when switching between tree/search modes ──
 
-  const handleInputClick = useCallback((): void => {
-    setIsOpen((previous) => {
-      const next = !previous;
-      if (!next) {
-        setHighlightedIndex(-1);
+  useEffect(() => {
+    if (dropdownScrollRef.current) {
+      dropdownScrollRef.current.scrollTop = 0;
+    }
+  }, [isSearchMode]);
+
+  // ── Wrapper click — opens dropdown, focuses input ──
+
+  const handleWrapperClick = useCallback(
+    (event: React.MouseEvent): void => {
+      // If the click target is the input, just open (don't toggle)
+      if (event.target === inputRef.current) {
+        if (!isOpen) setIsOpen(true);
+        return;
       }
-      return next;
-    });
-  }, []);
+      // For all other areas: toggle open/close
+      inputRef.current?.focus();
+      setIsOpen((prev) => {
+        const next = !prev;
+        if (!next) {
+          setSearchQuery('');
+          setHighlightedIndex(-1);
+        }
+        return next;
+      });
+    },
+    [isOpen],
+  );
+
+  // ── Chevron click — toggles dropdown ──
+
+  const handleChevronClick = useCallback(
+    (event: React.MouseEvent): void => {
+      event.stopPropagation();
+      inputRef.current?.focus();
+      setIsOpen((prev) => {
+        const next = !prev;
+        if (!next) {
+          setSearchQuery('');
+          setHighlightedIndex(-1);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  // ── Search input change ──
+
+  const handleSearchChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      const value = event.target.value;
+      setSearchQuery(value);
+      setHighlightedIndex(-1);
+      if (!isOpen) setIsOpen(true);
+    },
+    [isOpen],
+  );
 
   // ── Keyboard handler ──
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent): void => {
-      const nodeCount = flatNodes.length;
+      const nodeCount = displayNodes.length;
 
       switch (event.key) {
         case 'ArrowDown': {
           event.preventDefault();
           if (!isOpen) {
-            // First press opens the dropdown and highlights the first item
             setIsOpen(true);
             setHighlightedIndex(0);
           } else {
-            // Move highlight down, clamped to the last item
             setHighlightedIndex((prev) => Math.min(prev + 1, nodeCount - 1));
           }
           break;
@@ -185,16 +238,16 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
         case 'ArrowUp': {
           event.preventDefault();
           if (isOpen) {
-            // Move highlight up, clamped to 0
             setHighlightedIndex((prev) => Math.max(prev - 1, 0));
           }
           break;
         }
 
         case 'ArrowRight': {
-          event.preventDefault();
-          if (isOpen && highlightedIndex >= 0) {
-            const focusedNode = flatNodes[highlightedIndex];
+          // Only expand in tree mode
+          if (!isSearchMode && isOpen && highlightedIndex >= 0) {
+            event.preventDefault();
+            const focusedNode = displayNodes[highlightedIndex];
             if (focusedNode && focusedNode.node.hasChildren && !focusedNode.node.isOpen) {
               toggleExpand(focusedNode.node.id);
             }
@@ -203,9 +256,10 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
         }
 
         case 'ArrowLeft': {
-          event.preventDefault();
-          if (isOpen && highlightedIndex >= 0) {
-            const focusedNode = flatNodes[highlightedIndex];
+          // Only collapse in tree mode
+          if (!isSearchMode && isOpen && highlightedIndex >= 0) {
+            event.preventDefault();
+            const focusedNode = displayNodes[highlightedIndex];
             if (focusedNode && focusedNode.node.isOpen) {
               toggleExpand(focusedNode.node.id);
             }
@@ -219,7 +273,7 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
             setIsOpen(true);
             setHighlightedIndex(0);
           } else if (highlightedIndex >= 0) {
-            const focusedNode = flatNodes[highlightedIndex];
+            const focusedNode = displayNodes[highlightedIndex];
             if (focusedNode) {
               toggleSelect(focusedNode.node.id);
             }
@@ -245,10 +299,15 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
 
         case 'Escape': {
           event.preventDefault();
-          setIsOpen(false);
-          setHighlightedIndex(-1);
-          // Return focus to trigger so the user can re-open with Enter
-          triggerRef.current?.focus();
+          if (isSearchMode) {
+            // First Escape: clear search but keep dropdown open
+            setSearchQuery('');
+            setHighlightedIndex(-1);
+          } else {
+            // Second Escape (or first if no search): close dropdown
+            setIsOpen(false);
+            setHighlightedIndex(-1);
+          }
           break;
         }
 
@@ -256,70 +315,89 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
           break;
       }
     },
-    [isOpen, highlightedIndex, flatNodes, toggleExpand, toggleSelect],
+    [isOpen, isSearchMode, highlightedIndex, displayNodes, toggleExpand, toggleSelect],
   );
 
   return (
-    <div ref={comboboxWrapperRef} className="relative w-full max-w-md">
-      {/* ── Input trigger with tags ── */}
-      <button
-        ref={triggerRef}
-        type="button"
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        aria-controls={isOpen ? listboxId : undefined}
-        aria-activedescendant={isOpen ? activeDescendantId : undefined}
-        aria-label="Select items from hierarchical list"
-        onClick={handleInputClick}
-        onKeyDown={handleKeyDown}
+    <div ref={comboboxWrapperRef} className="relative w-full max-w-lg">
+      {/* ── Trigger area with tags + search input ── */}
+      <div
+        onClick={handleWrapperClick}
         className={[
-          'flex w-full min-h-10 items-center gap-sm',
-          'rounded-md border bg-white px-md py-sm text-sm',
-          'transition-colors duration-150',
-          'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1',
+          'flex min-h-[2.5rem] w-full cursor-text flex-wrap items-center gap-1',
+          'rounded-md border bg-white px-3 py-1.5',
+          'transition-all duration-150',
           isOpen
-            ? 'border-primary-500 ring-1 ring-primary-500'
-            : 'border-neutral-300 hover:border-neutral-400',
+            ? 'border-blue-500 shadow-sm'
+            : 'border-gray-300 hover:border-gray-400',
         ].join(' ')}
       >
-        {/* Tags or placeholder text */}
-        <div className="flex flex-1 flex-wrap items-center gap-xs overflow-hidden">
-          {selectedNodes.length > 0 ? (
-            <SelectedTags
-              selectedNodes={selectedNodes}
-              onRemove={deselectNode}
-            />
-          ) : (
-            <span className="truncate text-neutral-400">Select items…</span>
-          )}
-        </div>
+        {/* Selected tags */}
+        {selectedNodes.length > 0 && (
+          <SelectedTags
+            selectedNodes={selectedNodes}
+            onRemove={deselectNode}
+          />
+        )}
 
-        {/* Chevron icon — rotates when open */}
-        <svg
+        {/* Search / combobox input */}
+        <input
+          ref={inputRef}
+          type="text"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
+          aria-controls={isOpen ? listboxId : undefined}
+          aria-activedescendant={isOpen ? activeDescendantId : undefined}
+          aria-label="Select items from hierarchical list"
+          value={searchQuery}
+          onChange={handleSearchChange}
+          onKeyDown={handleKeyDown}
+          placeholder={selectedNodes.length > 0 ? '' : 'Type to search or click to browse…'}
+          autoComplete="off"
           className={[
-            'ml-sm h-4 w-4 flex-shrink-0 text-neutral-400 transition-transform duration-200',
-            isOpen ? 'rotate-180' : '',
+            'min-w-[120px] flex-1 border-0 bg-transparent py-1 text-sm',
+            'text-gray-900 outline-none placeholder:text-gray-400',
           ].join(' ')}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-          aria-hidden="true"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+        />
 
-      {/* ── Dropdown panel (absolutely positioned below input) ── */}
+        {/* Chevron toggle */}
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={handleChevronClick}
+          className="ml-auto flex-shrink-0 rounded p-1 text-gray-400 hover:text-gray-600 transition-colors"
+          aria-label={isOpen ? 'Close dropdown' : 'Open dropdown'}
+        >
+          <svg
+            className={[
+              'h-4 w-4 transition-transform duration-200',
+              isOpen ? 'rotate-180' : '',
+            ].join(' ')}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+
+      {/* ── Dropdown panel ── */}
       {isOpen && (
         <div
-          className={[
-            'absolute left-0 top-full z-10 mt-xs w-full',
-            'rounded-md border border-neutral-200 bg-white shadow-lg',
-          ].join(' ')}
+          className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
         >
-          {/* Scrollable container — the virtualizer measures this */}
+          {/* Search-mode "no results" message */}
+          {isSearchMode && displayNodes.length === 0 && (
+            <div className="px-4 py-3 text-center text-sm text-gray-500" role="status">
+              No results for &ldquo;{searchQuery}&rdquo;
+            </div>
+          )}
+
+          {/* Scrollable virtualized list */}
           <div
             ref={dropdownScrollRef}
             id={listboxId}
@@ -327,36 +405,35 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
             aria-label="Hierarchical options"
             aria-multiselectable="true"
             className="relative overflow-y-auto"
-            style={{ maxHeight: 'var(--combobox-max-height)' }}
+            style={{ maxHeight: '320px' }}
           >
-            {/* Spacer div — gives the scrollbar the correct total height */}
-            <div className="relative w-full" style={{ height: `${totalHeight}px` }}>
-              {virtualItems.map((virtualItem) => {
-                const flatNode = flatNodes[virtualItem.index];
+            {displayNodes.length > 0 && (
+              <div className="relative w-full" style={{ height: `${totalHeight}px` }}>
+                {virtualItems.map((virtualItem) => {
+                  const flatNode = displayNodes[virtualItem.index];
+                  if (!flatNode) return null;
 
-                // Guard for noUncheckedIndexedAccess — the index could theoretically
-                // be out of bounds if flatNodes changed between render frames.
-                if (!flatNode) return null;
-
-                return (
-                  <TreeRow
-                    key={flatNode.node.id}
-                    flatNode={flatNode}
-                    offsetTop={virtualItem.offsetTop}
-                    rowHeight={ROW_HEIGHT_PX}
-                    isHighlighted={virtualItem.index === highlightedIndex}
-                    optionId={`${OPTION_ID_PREFIX}${flatNode.node.id}`}
-                    onToggleExpand={toggleExpand}
-                    onToggleSelect={toggleSelect}
-                  />
-                );
-              })}
-            </div>
+                  return (
+                    <TreeRow
+                      key={flatNode.node.id}
+                      flatNode={flatNode}
+                      offsetTop={virtualItem.offsetTop}
+                      rowHeight={currentRowHeight}
+                      isHighlighted={virtualItem.index === highlightedIndex}
+                      optionId={`${OPTION_ID_PREFIX}${flatNode.node.id}`}
+                      onToggleExpand={toggleExpand}
+                      onToggleSelect={toggleSelect}
+                      searchQuery={isSearchMode ? searchQuery : undefined}
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Empty state */}
-          {flatNodes.length === 0 && !error && (
-            <div className="px-md py-lg text-center text-sm text-neutral-400" role="status">
+          {/* Empty state — no items at all (tree mode) */}
+          {!isSearchMode && flatNodes.length === 0 && !error && (
+            <div className="px-4 py-3 text-center text-sm text-gray-400" role="status">
               No items available
             </div>
           )}
@@ -365,14 +442,14 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
           {error && (
             <div
               role="alert"
-              className="flex items-center justify-between border-t border-danger-500/20 bg-danger-500/10 px-md py-sm text-sm text-danger-600"
+              className="flex items-center justify-between border-t border-red-500/20 bg-red-50 px-3 py-2 text-sm text-red-600"
             >
               <span>{error}</span>
               <button
                 type="button"
                 tabIndex={-1}
                 onClick={clearError}
-                className="ml-sm text-xs font-medium underline hover:text-danger-500"
+                className="ml-2 text-xs font-medium underline hover:text-red-500"
                 aria-label="Dismiss error"
               >
                 Dismiss

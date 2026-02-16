@@ -19,6 +19,9 @@ const MAX_VISIBLE_TAGS = 5;
  * Each tag shows the node's label and an × button to deselect it.
  * When more than MAX_VISIBLE_TAGS are selected, the overflow is
  * collapsed into a "+N more" badge.
+ *
+ * Returns a Fragment so the parent container's flex-wrap layout
+ * can interleave tags with the search input on the same line.
  */
 export function SelectedTags({
   selectedNodes,
@@ -30,7 +33,7 @@ export function SelectedTags({
   const overflowCount = selectedNodes.length - MAX_VISIBLE_TAGS;
 
   return (
-    <div className="flex flex-wrap gap-xs">
+    <>
       {visibleTags.map((selectedNode) => (
         <Tag
           key={selectedNode.id}
@@ -41,11 +44,11 @@ export function SelectedTags({
       ))}
 
       {overflowCount > 0 && (
-        <span className="inline-flex items-center rounded-md bg-neutral-100 px-sm py-xs text-xs font-medium text-neutral-600">
+        <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
           +{overflowCount} more
         </span>
       )}
-    </div>
+    </>
   );
 }
 
@@ -76,12 +79,12 @@ function Tag({ nodeId, label, onRemove }: TagProps): React.JSX.Element {
   );
 
   return (
-    <span className="inline-flex items-center gap-xs rounded-md bg-primary-100 px-sm py-xs text-xs font-medium text-primary-800">
+    <span className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
       <span className="max-w-24 truncate">{label}</span>
       <button
         type="button"
         onClick={handleRemove}
-        className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-primary-600 hover:bg-primary-200 hover:text-primary-900"
+        className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-blue-600 hover:bg-blue-200 hover:text-blue-900"
         aria-label={`Remove ${label}`}
       >
         <svg

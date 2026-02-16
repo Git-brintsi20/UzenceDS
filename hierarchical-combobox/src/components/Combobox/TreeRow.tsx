@@ -16,28 +16,32 @@ interface TreeRowProps {
   optionId: string;
   onToggleExpand: (nodeId: string) => void;
   onToggleSelect: (nodeId: string) => void;
+  /**
+   * When defined, the row is displayed in "search result" mode:
+   *  - Expand/collapse button is hidden
+   *  - Matching text in the label is highlighted
+   *  - Ancestry breadcrumb is shown below the label (if available)
+   */
+  searchQuery?: string;
 }
 
 /**
  * TreeRow — a single absolutely-positioned row inside the virtualized list.
  *
- * Indentation:
- *   paddingLeft = depth × INDENT_PX
- *   This creates the visual nesting without nested DOM elements.
- *   A root node (depth 0) has no extra padding. A grandchild (depth 2)
- *   gets 40px of indent.
+ * Renders in two layout modes:
  *
- * Loading skeleton:
- *   When a node's children are being fetched (isLoading = true),
- *   the expand icon is replaced with a pulsing bar. This gives
- *   the user immediate feedback that something is happening.
+ * **Tree mode** (searchQuery undefined):
+ *   [indent] [▸ expand] [☐ checkbox] [label]
+ *   Row height: 32px. Depth controls indentation.
+ *
+ * **Search mode** (searchQuery defined):
+ *   [☐ checkbox] [Highlighted label]
+ *                 [breadcrumb path in gray]
+ *   Row height: 44px. No indentation. Expand button hidden.
  *
  * ARIA:
- *   Each row carries role="option" and aria-selected reflecting the
- *   checkbox selection state. Branch nodes also carry aria-expanded.
- *   The row's DOM id is used by the trigger's aria-activedescendant
- *   to communicate the current keyboard-highlighted item to assistive
- *   technology.
+ *   role="option", aria-selected, aria-expanded (branches in tree mode).
+ *   The row's DOM id feeds aria-activedescendant on the input.
  */
 export function TreeRow({
   flatNode,
@@ -47,12 +51,13 @@ export function TreeRow({
   optionId,
   onToggleExpand,
   onToggleSelect,
+  searchQuery,
 }: TreeRowProps): React.JSX.Element {
   const { node, depth } = flatNode;
+  const isInSearchMode = searchQuery !== undefined;
 
   const handleExpandClick = useCallback(
     (event: React.MouseEvent): void => {
-      // Prevent the click from also toggling selection
       event.stopPropagation();
       onToggleExpand(node.id);
     },
@@ -70,74 +75,74 @@ export function TreeRow({
     onToggleSelect(node.id);
   }, [node.id, onToggleSelect]);
 
-  /** Clicking anywhere on the row (outside expand/checkbox) toggles selection */
   const handleRowClick = useCallback((): void => {
     onToggleSelect(node.id);
   }, [node.id, onToggleSelect]);
 
   /**
    * Indentation math:
-   * Each depth level pushes the row content rightward by INDENT_PX.
-   * We also add a base padding (12px) so root nodes aren't flush
-   * against the container edge.
+   *   Tree mode:   12px base + depth × 20px per level
+   *   Search mode: 12px flat (no nesting)
    */
-  const indentPx = 12 + depth * INDENT_PX;
+  const indentPx = isInSearchMode ? 12 : 12 + depth * INDENT_PX;
 
   return (
     <div
       id={optionId}
       role="option"
       aria-selected={node.isSelected}
-      aria-expanded={node.hasChildren ? node.isOpen : undefined}
+      aria-expanded={!isInSearchMode && node.hasChildren ? node.isOpen : undefined}
       onClick={handleRowClick}
       className={[
         'absolute left-0 right-0 flex cursor-pointer items-center text-sm',
         'transition-colors duration-75',
-        isHighlighted ? 'bg-primary-50' : 'hover:bg-neutral-50',
+        isHighlighted
+          ? 'bg-blue-50'
+          : 'hover:bg-gray-50',
       ].join(' ')}
       style={{
         height: `${rowHeight}px`,
         top: `${offsetTop}px`,
         paddingLeft: `${indentPx}px`,
+        paddingRight: '12px',
       }}
     >
-      {/* ── Expand/Collapse toggle ── */}
-      {node.hasChildren ? (
-        <button
-          type="button"
-          tabIndex={-1}
-          onClick={handleExpandClick}
-          className={[
-            'mr-xs flex h-5 w-5 flex-shrink-0 items-center justify-center',
-            'rounded-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700',
-            'transition-colors duration-100',
-          ].join(' ')}
-          aria-label={node.isOpen ? `Collapse ${node.label}` : `Expand ${node.label}`}
-          aria-hidden="true"
-        >
-          {node.isLoading ? (
-            /* Loading skeleton — pulsing bar replaces the chevron */
-            <span className="block h-3 w-3 animate-pulse rounded-sm bg-neutral-300" />
-          ) : (
-            /* Chevron — points right when collapsed, down when expanded */
-            <svg
-              className={[
-                'h-3.5 w-3.5 transition-transform duration-150',
-                node.isOpen ? 'rotate-90' : '',
-              ].join(' ')}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2.5}
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-          )}
-        </button>
-      ) : (
-        /* Leaf node spacer — keeps labels aligned with branch nodes */
-        <span className="mr-xs inline-block h-5 w-5 flex-shrink-0" aria-hidden="true" />
+      {/* ── Expand/Collapse toggle (tree mode only) ── */}
+      {!isInSearchMode && (
+        node.hasChildren ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={handleExpandClick}
+            className={[
+              'mr-1 flex h-5 w-5 flex-shrink-0 items-center justify-center',
+              'rounded text-gray-500 hover:bg-gray-100 hover:text-gray-700',
+              'transition-colors duration-100',
+            ].join(' ')}
+            aria-label={node.isOpen ? `Collapse ${node.label}` : `Expand ${node.label}`}
+            aria-hidden="true"
+          >
+            {node.isLoading ? (
+              <span className="block h-3 w-3 animate-pulse rounded-sm bg-gray-300" />
+            ) : (
+              <svg
+                className={[
+                  'h-3.5 w-3.5 transition-transform duration-150',
+                  node.isOpen ? 'rotate-90' : '',
+                ].join(' ')}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            )}
+          </button>
+        ) : (
+          <span className="mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true" />
+        )
       )}
 
       {/* ── Checkbox ── */}
@@ -145,7 +150,7 @@ export function TreeRow({
         type="checkbox"
         tabIndex={-1}
         checked={node.isSelected}
-        ref={(inputElement) => {
+        ref={(inputElement): void => {
           if (inputElement) {
             inputElement.indeterminate = node.isIndeterminate;
           }
@@ -153,22 +158,68 @@ export function TreeRow({
         onClick={handleCheckboxClick}
         onChange={handleCheckboxChange}
         className={[
-          'mr-sm h-4 w-4 flex-shrink-0 cursor-pointer rounded-sm',
-          'border-neutral-300 text-primary-600',
-          'focus:ring-2 focus:ring-primary-500 focus:ring-offset-1',
+          'mr-2 h-4 w-4 flex-shrink-0 cursor-pointer rounded',
+          'border-gray-300 text-blue-600',
+          'focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
         ].join(' ')}
         aria-label={`Select ${node.label}`}
       />
 
-      {/* ── Label ── */}
-      <span
-        className={[
-          'truncate',
-          node.isSelected ? 'font-medium text-neutral-900' : 'text-neutral-700',
-        ].join(' ')}
-      >
-        {node.label}
-      </span>
+      {/* ── Label (+ breadcrumb in search mode) ── */}
+      <div className="flex min-w-0 flex-1 flex-col justify-center overflow-hidden">
+        <span
+          className={[
+            'truncate',
+            node.isSelected ? 'font-medium text-gray-900' : 'text-gray-700',
+          ].join(' ')}
+        >
+          {searchQuery ? (
+            <HighlightedLabel text={node.label} query={searchQuery} />
+          ) : (
+            node.label
+          )}
+        </span>
+
+        {flatNode.breadcrumb && (
+          <span className="truncate text-xs leading-tight text-gray-400">
+            {flatNode.breadcrumb}
+          </span>
+        )}
+      </div>
     </div>
+  );
+}
+
+// ─── Inline helper: highlight the matching substring ──────────
+
+/**
+ * Splits `text` around the first occurrence of `query` (case-insensitive)
+ * and wraps the match in a <mark> element with a soft highlight.
+ */
+function HighlightedLabel({
+  text,
+  query,
+}: {
+  text: string;
+  query: string;
+}): React.JSX.Element {
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase().trim();
+  const matchIndex = lowerText.indexOf(lowerQuery);
+
+  if (matchIndex === -1 || lowerQuery === '') {
+    return <>{text}</>;
+  }
+
+  const before = text.slice(0, matchIndex);
+  const match = text.slice(matchIndex, matchIndex + lowerQuery.length);
+  const after = text.slice(matchIndex + lowerQuery.length);
+
+  return (
+    <>
+      {before}
+      <mark className="rounded-sm bg-yellow-100 text-gray-900">{match}</mark>
+      {after}
+    </>
   );
 }

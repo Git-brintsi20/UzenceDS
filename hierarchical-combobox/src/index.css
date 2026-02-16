@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /*
  * Design Tokens — CSS Variables
@@ -6,7 +8,7 @@
  * These tokens define the combobox visual language and are consumed
  * by Tailwind utilities via the theme configuration below.
  */
-@theme {
+:root {
   /* ---------- Color Palette ---------- */
   --color-primary-50: #eff6ff;
   --color-primary-100: #dbeafe;
