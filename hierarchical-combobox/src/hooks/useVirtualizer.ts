@@ -131,8 +131,20 @@ export function useVirtualizer({
     const container = containerRef.current;
     if (!container) return;
 
-    // Measure initial height
+    // ---------------------------------------------------------
+    // 🔴 FIX: SYNC STATE IMMEDIATELY ON MOUNT / REF CHANGE
+    // ---------------------------------------------------------
+    // When the dropdown re-opens, the DOM scrollTop is 0, but 
+    // our React state might still be at the previous scroll position.
+    // We must forcibly sync them to prevent rendering blank space.
+    if (container.scrollTop !== scrollTopRef.current) {
+        setScrollTop(container.scrollTop);
+        scrollTopRef.current = container.scrollTop;
+    }
+    
+    // Also sync the container height immediately
     setContainerHeight(container.clientHeight);
+    // ---------------------------------------------------------
 
     // Listen for scroll
     container.addEventListener('scroll', handleScroll, { passive: true });
@@ -165,19 +177,23 @@ export function useVirtualizer({
   /** Total pixel height for the scrollbar spacer div */
   const totalHeight = itemCount * itemHeight;
 
+  // Safety check: ensure calculations don't result in NaN if itemHeight is 0
+  const safeItemHeight = itemHeight || 32;
+
   /**
    * rawStartIndex: which row's top edge is at or above the viewport top?
    * We floor because scrollTop 33px with 32px rows means row 1 is the
    * first fully visible row, not row 0.
    */
-  const rawStartIndex = Math.floor(scrollTop / itemHeight);
+  const rawStartIndex = Math.floor(scrollTop / safeItemHeight);
 
   /**
    * visibleNodeCount: how many rows fit in the viewport?
    * Ceil handles partial rows — if the container is 100px tall and rows
    * are 32px, we need ceil(100/32) = 4 rows, not floor = 3.
+   * Add +1 to ensure we render one extra row for smooth scrolling.
    */
-  const visibleNodeCount = Math.ceil(containerHeight / itemHeight);
+  const visibleNodeCount = Math.ceil(containerHeight / safeItemHeight) + 1;
 
 
 
@@ -204,7 +220,7 @@ export function useVirtualizer({
     ) {
       virtualItems.push({
         index: currentIndex,
-        offsetTop: currentIndex * itemHeight,
+        offsetTop: currentIndex * safeItemHeight,
       });
     }
   }

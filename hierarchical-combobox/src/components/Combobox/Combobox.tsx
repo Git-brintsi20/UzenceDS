@@ -103,7 +103,7 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
     containerRef: dropdownScrollRef,
     itemCount: displayNodes.length,
     itemHeight: currentRowHeight,
-    overscan: 5,
+    overscan: 10,
   });
 
 
@@ -422,8 +422,8 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
             role="listbox"
             aria-label="Hierarchical options"
             aria-multiselectable="true"
-            className="relative overflow-y-auto"
-            style={{ maxHeight: '320px', minHeight: '100px' }}
+            className="relative overflow-y-auto overflow-x-hidden"
+            style={{ maxHeight: '320px', minHeight: '50px' }}
           >
             {displayNodes.length > 0 && (
               <div className="relative w-full" style={{ height: `${totalHeight}px` }}>
