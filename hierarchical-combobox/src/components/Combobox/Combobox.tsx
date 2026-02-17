@@ -143,8 +143,14 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
   // ── Reset scroll position when dropdown opens ──
 
   useEffect(() => {
+    // We use requestAnimationFrame here to ensure the DOM is fully painted
+    // before we try to reset scrollTop, preventing race conditions.
     if (isOpen && dropdownScrollRef.current) {
-      dropdownScrollRef.current.scrollTop = 0;
+      requestAnimationFrame(() => {
+        if (dropdownScrollRef.current) {
+          dropdownScrollRef.current.scrollTop = 0;
+        }
+      });
     }
   }, [isOpen]);
 
@@ -423,17 +429,25 @@ export function Combobox(props: ComboboxProps = {}): React.JSX.Element {
             aria-label="Hierarchical options"
             aria-multiselectable="true"
             className="relative overflow-y-auto overflow-x-hidden"
-            style={{ maxHeight: '320px', minHeight: '50px' }}
+            style={{ 
+              maxHeight: '320px', 
+              minHeight: displayNodes.length > 0 ? '50px' : '0px',
+              willChange: 'scrollTop' 
+            }}
           >
             {displayNodes.length > 0 && (
-              <div className="relative w-full" style={{ height: `${totalHeight}px` }}>
+              <div 
+                className="relative w-full" 
+                style={{ height: `${totalHeight}px` }}
+              >
                 {virtualItems.map((virtualItem) => {
                   const flatNode = displayNodes[virtualItem.index];
+                  // Safety check
                   if (!flatNode) return null;
 
                   return (
                     <TreeRow
-                      key={flatNode.node.id}
+                      key={flatNode.node.id} // Stable key is crucial
                       flatNode={flatNode}
                       offsetTop={virtualItem.offsetTop}
                       rowHeight={currentRowHeight}

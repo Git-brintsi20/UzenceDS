@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useLayoutEffect, useCallback, useRef } from 'react';
 
 /**
  * Represents a single item the virtualizer tells the renderer to mount.
@@ -86,143 +86,105 @@ export function useVirtualizer({
   totalHeight: number;
 } {
   const [scrollTop, setScrollTop] = useState(0);
-  // Initialize with reasonable default to avoid 0-height calculation on first render
-  const [containerHeight, setContainerHeight] = useState(320);
+  const [containerHeight, setContainerHeight] = useState(0);
 
-  // Keep a ref to the latest scroll position so the resize observer
-  // callback doesn't need scrollTop in its dependency array.
+  // We use a Ref for scrollTop to avoid stale closures in the scroll handler
+  // without needing to re-bind the event listener on every scroll.
   const scrollTopRef = useRef(0);
 
-  /**
-   * Scroll handler — captures how far the user has scrolled.
-   * Uses requestAnimationFrame to batch updates with the browser's
-   * paint cycle, preventing layout thrashing on fast scrolls.
-   */
   const rafIdRef = useRef<number | null>(null);
-  
-  const handleScroll = useCallback((): void => {
-    const container = containerRef.current;
-    if (!container) return;
 
-    const latestScrollTop = container.scrollTop;
-    scrollTopRef.current = latestScrollTop;
+  /**
+   * Scroll Handler:
+   * Batches updates using requestAnimationFrame to prevent layout thrashing.
+   */
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current) return;
+    
+    const currentScrollTop = containerRef.current.scrollTop;
+    scrollTopRef.current = currentScrollTop;
 
-    // Cancel any pending rAF to avoid queuing multiple updates
-    if (rafIdRef.current !== null) {
-      cancelAnimationFrame(rafIdRef.current);
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        setScrollTop(currentScrollTop);
+        rafIdRef.current = null;
+      });
     }
-
-    // rAF ensures we only update state once per frame even if the
-    // browser fires multiple scroll events between paints.
-    rafIdRef.current = requestAnimationFrame(() => {
-      setScrollTop(latestScrollTop);
-      rafIdRef.current = null;
-    });
   }, [containerRef]);
 
   /**
-   * Attach scroll listener + measure container height.
-   *
-   * We use ResizeObserver to track container height changes (e.g. if the
-   * window is resized or a parent layout shifts). This keeps our
-   * visibleCount calculation accurate without polling.
+   * Layout Effect:
+   * Uses useLayoutEffect to sync DOM measurements synchronously BEFORE paint.
+   * This prevents the "flash" of missing items when expanding nodes.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    // ---------------------------------------------------------
-    // 🔴 FIX: SYNC STATE IMMEDIATELY ON MOUNT / REF CHANGE
-    // ---------------------------------------------------------
-    // When the dropdown re-opens, the DOM scrollTop is 0, but 
-    // our React state might still be at the previous scroll position.
-    // We must forcibly sync them to prevent rendering blank space.
+    // 1. Immediate Sync: Force React state to match DOM reality right now.
+    // If the container just opened, scrollTop is 0.
+    // If we expanded a node, containerHeight might have grown.
     if (container.scrollTop !== scrollTopRef.current) {
-        setScrollTop(container.scrollTop);
-        scrollTopRef.current = container.scrollTop;
+      setScrollTop(container.scrollTop);
+      scrollTopRef.current = container.scrollTop;
     }
     
-    // Also sync the container height immediately
+    // Always measure height on mount/update
     setContainerHeight(container.clientHeight);
-    // ---------------------------------------------------------
 
-    // Listen for scroll
+    // 2. Attach Listeners
     container.addEventListener('scroll', handleScroll, { passive: true });
 
-    // Track container resize - only update if height actually changed
+    // 3. Observer for dynamic resizing (window resize)
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
+        // We only update if the height actually changed to avoid render loops
         const newHeight = entry.contentRect.height;
-        setContainerHeight((prevHeight) => {
-          if (Math.abs(newHeight - prevHeight) > 1) {
-            return newHeight;
-          }
-          return prevHeight;
-        });
+        setContainerHeight((prev) => 
+          Math.abs(newHeight - prev) > 0.5 ? newHeight : prev
+        );
       }
     });
+    
     resizeObserver.observe(container);
 
-    return (): void => {
+    return () => {
       container.removeEventListener('scroll', handleScroll);
       resizeObserver.disconnect();
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
       }
     };
-  }, [containerRef, handleScroll]);
+  }, [containerRef, handleScroll, itemCount]); 
+  // ^^^ DEPENDENCY ON itemCount IS CRITICAL:
+  // When list grows, we MUST re-measure containerHeight immediately.
 
-  // ─── The core math (see JSDoc above for full explanation) ───
+  // ─── Math Calculation ───
 
-  /** Total pixel height for the scrollbar spacer div */
   const totalHeight = itemCount * itemHeight;
-
-  // Safety check: ensure calculations don't result in NaN if itemHeight is 0
+  
+  // Prevent division by zero or NaN issues
   const safeItemHeight = itemHeight || 32;
+  const safeContainerHeight = containerHeight || 320; // Default fallback
 
-  /**
-   * rawStartIndex: which row's top edge is at or above the viewport top?
-   * We floor because scrollTop 33px with 32px rows means row 1 is the
-   * first fully visible row, not row 0.
-   */
+  // Calculate visible range
   const rawStartIndex = Math.floor(scrollTop / safeItemHeight);
+  const visibleNodeCount = Math.ceil(safeContainerHeight / safeItemHeight);
 
-  /**
-   * visibleNodeCount: how many rows fit in the viewport?
-   * Ceil handles partial rows — if the container is 100px tall and rows
-   * are 32px, we need ceil(100/32) = 4 rows, not floor = 3.
-   * Add +1 to ensure we render one extra row for smooth scrolling.
-   */
-  const visibleNodeCount = Math.ceil(containerHeight / safeItemHeight) + 1;
-
-
-
-  /**
-   * Clamp start/end with overscan buffer.
-   * max(0, ...) prevents negative indices.
-   * min(itemCount - 1, ...) prevents reading past the array.
-   */
+  // Apply overscan (buffer)
   const startIndex = Math.max(0, rawStartIndex - overscan);
   const endIndex = Math.min(
     itemCount - 1,
-    rawStartIndex + visibleNodeCount + overscan,
+    rawStartIndex + visibleNodeCount + overscan
   );
 
-  /** Build the array of items the component should actually render. */
   const virtualItems: VirtualItem[] = [];
 
-  // Guard against empty lists (itemCount = 0 → endIndex = -1)
-  if (itemCount > 0) {
-    for (
-      let currentIndex = startIndex;
-      currentIndex <= endIndex;
-      currentIndex++
-    ) {
-      virtualItems.push({
-        index: currentIndex,
-        offsetTop: currentIndex * safeItemHeight,
-      });
-    }
+  for (let i = startIndex; i <= endIndex; i++) {
+    virtualItems.push({
+      index: i,
+      offsetTop: i * safeItemHeight,
+    });
   }
 
   return { virtualItems, totalHeight };

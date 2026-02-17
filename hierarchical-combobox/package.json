@@ -11,7 +11,8 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "chromatic": "npx chromatic --project-token=chpt_dd72b4a629fe16d"
   },
   "dependencies": {
     "react": "^19.2.0",
